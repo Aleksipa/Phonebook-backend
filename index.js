@@ -14,7 +14,7 @@ app.use(
   ),
 );
 
-let persons = [
+const persons = [
   {
     id: 1,
     name: 'Arto Hellas',
@@ -50,42 +50,59 @@ app.get('/api/persons', (request, response) => {
 });
 
 app.get('/info', (request, response) => {
-  const d = new Date();
-  response.send(`<p>Phonebook has info for ${persons.length} people</p><p>${d.toString()}</p>`);
-});
-
-app.get('/api/persons/:id', (request, response) => {
-  Person.findById(request.params.id).then((person) => {
-    response.json(person);
+  Person.find({}).then((person) => {
+    const d = new Date();
+    response.send(`<p>Phonebook has info for ${person.length} people</p><p>${d.toString()}</p>`);
   });
 });
 
-app.delete('/api/persons/:id', (request, response) => {
-  const id = Number(request.params.id);
-  persons = persons.filter((p) => p.id !== id);
-
-  response.status(204).end();
+app.get('/api/persons/:id', (request, response, next) => {
+  Person.findById(request.params.id)
+    .then((person) => {
+      if (person) {
+        response.json(person);
+      } else {
+        response.status(404).end();
+      }
+    })
+    .catch((error) => next(error));
 });
 
-app.post('/api/persons', (request, response) => {
-  const { body } = request;
-  const alreadyExists = persons.some((p) => p.name === body.name);
+app.delete('/api/persons/:id', (request, response, next) => {
+  Person.findByIdAndRemove(request.params.id)
+    .then((result) => {
+      response.status(204).end();
+    })
+    .catch((error) => next(error));
+});
 
-  if (!body.name) {
+app.put('/api/persons/:id', (request, response, next) => {
+  const { body } = request;
+
+  const person = {
+    name: body.name,
+    number: body.number,
+  };
+
+  Person.findByIdAndUpdate(request.params.id, person, { new: true })
+    .then((updatedPerson) => {
+      response.json(updatedPerson.toJSON());
+    })
+    .catch((error) => next(error));
+});
+
+app.post('/api/persons', (request, response, next) => {
+  const { body } = request;
+
+  if (body.name === undefined) {
     return response.status(400).json({
       error: 'name missing',
     });
   }
 
-  if (!body.number) {
+  if (body.number === undefined) {
     return response.status(400).json({
       error: 'number missing',
-    });
-  }
-
-  if (alreadyExists) {
-    return response.status(400).json({
-      error: 'name must be unique',
     });
   }
 
@@ -97,8 +114,27 @@ app.post('/api/persons', (request, response) => {
 
   person.save().then((savedPerson) => {
     response.json(savedPerson);
-  });
+  })
+    .catch((error) => next(error));
 });
+
+const unknownEndpoint = (request, response) => {
+  response.status(404).send({ error: 'unknown endpoint' });
+};
+
+app.use(unknownEndpoint);
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' });
+  }
+
+  next(error);
+};
+
+app.use(errorHandler);
 
 morgan.token('postData', (request) => {
   if (request.method === 'POST') return ` ${JSON.stringify(request.body)}`;
